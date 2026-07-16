@@ -25,9 +25,9 @@ class Config:
     UPLOADS_DIR: str = os.getenv("UPLOADS_DIR", "uploads").strip()
     
     # Pipeline Parameters
-    CHUNK_SIZE: int = int(os.getenv("CHUNK_SIZE", "500"))
-    CHUNK_OVERLAP: int = int(os.getenv("CHUNK_OVERLAP", "100"))
-    RETRIEVAL_K: int = int(os.getenv("RETRIEVAL_K", "4"))
+    CHUNK_SIZE: int = int(os.getenv("CHUNK_SIZE", "1000"))
+    CHUNK_OVERLAP: int = int(os.getenv("CHUNK_OVERLAP", "200"))
+    RETRIEVAL_K: int = int(os.getenv("RETRIEVAL_K", "6"))
     
     @classmethod
     def get_absolute_path(cls, path_str: str) -> Path:

@@ -31,6 +31,7 @@ get_rag_prompt = prompt_mod.get_rag_prompt
 
 llm_mod = importlib.import_module("pipeline.7_llm")
 get_llm = llm_mod.get_llm
+strip_thinking_tags = llm_mod.strip_thinking_tags
 
 rag_chain_mod = importlib.import_module("pipeline.8_rag_chain")
 create_rag_chain = rag_chain_mod.create_rag_chain
@@ -135,7 +136,7 @@ with st.sidebar:
                         )
                         num_chunks = len(chunks)
                         
-                        # 3. BM25 Retriever (pure Python - no ML models needed)
+                        # 3. Hybrid Retriever (BM25 keyword + Semantic vector search)
                         retriever = get_retriever(chunks, k=Config.RETRIEVAL_K)
                         
                         # 4. LLM & Chain
@@ -307,7 +308,7 @@ if user_query:
                     langchain_history.append(AIMessage(content=msg["content"]))
             
             # 2. Run the chain with progress indicator
-            with st.spinner("Analyzing resume..."):
+            with st.spinner("Analyzing resume (hybrid keyword + semantic search)..."):
                 chain = st.session_state.rag_chain
                 
                 # Execute retrieval + response generation
@@ -316,13 +317,16 @@ if user_query:
                     "chat_history": langchain_history
                 })
                 
-                response_text = result["answer"].strip()
+                response_text = strip_thinking_tags(result["answer"])
                 retrieved_docs = result.get("context", [])
                 
             # Formatting sources
             unique_sources = []
             serialized_chunks = []
             for doc in retrieved_docs:
+                # Skip the synthetic full-document chunk from source display
+                if doc.metadata.get("chunk_type") == "full_document":
+                    continue
                 filename = Path(doc.metadata.get("source", "resume")).name
                 page = doc.metadata.get("page", 0) + 1
                 src_str = f"{filename} (Page {page})"
@@ -335,23 +339,24 @@ if user_query:
                     "page": page
                 })
             
-            # Post-processing checks: If LLM claims information is unavailable OR if retrieval was empty
-            # Standardize output for missing information
-            hallucination_phrases = [
-                "i couldn't find this information", 
-                "i couldn't find any information",
-                "is not mentioned", 
-                "does not contain", 
-                "not provided",
-                "no information found"
-            ]
+            # Post-processing: enforce the fallback message ONLY when retrieval
+            # returned zero documents (the LLM had nothing to reason over).
+            # When docs ARE retrieved, we trust the LLM's reasoning — its prompt
+            # already instructs it to emit the sentinel phrase itself when the
+            # information is truly absent, while still synthesising partial answers.
+            NOT_FOUND_SENTINEL = "i couldn't find this information in the uploaded resume"
             
-            # If retrieved documents are empty, or the LLM detects it couldn't find information, enforce exact phrase
             is_not_found = False
-            if not retrieved_docs or any(phrase in response_text.lower() for phrase in hallucination_phrases):
+            if not retrieved_docs:
+                # Zero chunks retrieved — nothing to reason over
                 response_text = "I couldn't find this information in the uploaded resume."
                 is_not_found = True
-                unique_sources = [] # Clear sources if we didn't find anything
+                unique_sources = []
+            elif response_text.lower().strip().startswith(NOT_FOUND_SENTINEL):
+                # LLM itself decided the context contains nothing relevant
+                response_text = "I couldn't find this information in the uploaded resume."
+                is_not_found = True
+                unique_sources = []
                 
             # Display response
             message_placeholder.markdown(response_text)
